@@ -1,110 +1,207 @@
 package com.internship;
 
 import javax.swing.*;
-
-import org.jsoup.nodes.Element;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.IOException;
+import java.io.Serializable;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class InternshipAppGUI {
     private JFrame frame;
-    private JTextArea textArea;
-    public JTextField keywordTextField;
-    private JButton searchButton;
+    private JTable mainTable;
+    private DefaultTableModel mainTableModel;
+    private JTable completedTable;
+    private DefaultTableModel completedTableModel;
+    private JButton createNewButton;
+    private JButton saveButton;
+    private JButton loadButton;
 
-    private JButton indeedButton;
-    private JButton handshakeButton;
-    private JButton linkedInButton;
-    private String url;
-    private String keyword;
-    private String site;
+    private List<PotentialJob> postings;
+    private List<PotentialJob> completedPostings;
 
     public InternshipAppGUI() {
-        frame = new JFrame("Job Search");
+        postings = new ArrayList<>();
+        completedPostings = new ArrayList<>();
+
+        frame = new JFrame("Posting List");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(800, 600);
 
-        textArea = new JTextArea();
-        textArea.setEditable(false);
-        site = "";
+        String[] mainColumnNames = {"Job Title", "Company", "Compensation", "Due Date", "Location", "Job Link", "Complete"};
+        mainTableModel = new DefaultTableModel(mainColumnNames, 0) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                if (columnIndex == 5) {
+                    return JButton.class;
+                } else if (columnIndex == 6) {
+                    return Boolean.class;
+                }
+                return Object.class;
+            }
+        };
 
-        JScrollPane scrollPane = new JScrollPane(textArea);
-        frame.getContentPane().add(scrollPane, BorderLayout.CENTER);
+        mainTable = new JTable(mainTableModel);
+        mainTable.setAutoCreateRowSorter(true);
 
-        keywordTextField = new JTextField();
-        keywordTextField.setPreferredSize(new Dimension(200, 15));
-        searchButton = new JButton("Search");
+        String[] completedColumnNames = {"Job Title", "Company", "Compensation", "Due Date", "Location", "Job Link"};
+        completedTableModel = new DefaultTableModel(completedColumnNames, 0) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return columnIndex == 5 ? JButton.class : Object.class;
+            }
+        };
+        completedTable = new JTable(completedTableModel);
+        completedTable.setAutoCreateRowSorter(true);
 
-        indeedButton = new JButton("Indeed");
-        handshakeButton = new JButton("Handshake");
-        linkedInButton = new JButton("LinkedIn");
+        mainTable.getColumn("Job Link").setCellRenderer((TableCellRenderer) new ButtonRenderer());
+        completedTable.getColumn("Job Link").setCellRenderer((TableCellRenderer) new ButtonRenderer());
 
-        searchButton.addActionListener(new ActionListener() {
+        mainTable.getColumn("Complete").setCellRenderer(new CheckBoxRenderer());
+        mainTable.getColumn("Complete").setCellEditor(new DefaultCellEditor(new JCheckBox()));
+
+        JScrollPane mainScrollPane = new JScrollPane(mainTable);
+        JScrollPane completedScrollPane = new JScrollPane(completedTable);
+
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.addTab("Active Postings", mainScrollPane);
+        tabbedPane.addTab("Completed Postings", completedScrollPane);
+
+        createNewButton = new JButton("Create New Posting");
+        saveButton = new JButton("Save");
+        loadButton = new JButton("Load");
+
+        createNewButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                keyword = keywordTextField.getText();
-                if(site.length() == 0 || keyword.length() == 0) {
-                    textArea.setText("Please enter a search term AND select a website before searching!");
+                createNewPosting();
+            }
+        });
+
+        saveButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String dataName = JOptionPane.showInputDialog("Enter save name:");
+                JPopupMenu update = new JPopupMenu(DataStorage.saveData(postings, completedPostings, dataName));
+            }
+        });
+
+        loadButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String dataName = JOptionPane.showInputDialog("Enter file name:");
+                DataStorage.loadInternshipData(dataName, postings, completedPostings);
+                refreshTable(mainTableModel, mainTable);
+                refreshTable(completedTableModel, completedTable);
+                if (postings.size() > 0) {
+                    JOptionPane.showMessageDialog(frame, "Posting data loaded successfully.");
                 } else {
-                    performSearch(site);
+                    JOptionPane.showMessageDialog(frame, "Failed to load data. Please try again.");
                 }
             }
         });
 
-        indeedButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                url = "https://www.indeed.com/jobs?q=";
-                site = "Indeed";
-            }
-        });
-
-        handshakeButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                url = "https://uw.joinhandshake.com/stu/postings?query=";
-                site = "Handshake";
-            }
-        });
-
-        linkedInButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                url = "https://www.linkedin.com/jobs/search/?keywords=";
-                site = "LinkedIn";
-            }
-        });
-
         JPanel inputPanel = new JPanel(new FlowLayout());
-        inputPanel.add(new JLabel("Keyword: "));
-        inputPanel.add(keywordTextField);
-        inputPanel.add(searchButton);
-        inputPanel.add(indeedButton);
-        inputPanel.add(handshakeButton);
-        inputPanel.add(linkedInButton);
+        inputPanel.add(createNewButton);
+        inputPanel.add(saveButton);
+        inputPanel.add(loadButton);
 
         frame.getContentPane().add(inputPanel, BorderLayout.NORTH);
+        frame.getContentPane().add(tabbedPane, BorderLayout.CENTER);
 
         frame.setVisible(true);
     }
 
-    private void performSearch(String source) {
-        String word = keywordTextField.getText().trim();
-        for(int i = 0; i < word.length() - 1; i++) {
-            if(word.charAt(i) == ' ') {
-                word = word.substring(0, i) + "+" + word.substring(i + 1);
+    private void refreshTable(DefaultTableModel tableModel, JTable table) {
+        while (tableModel.getRowCount() > 0) {
+            tableModel.removeRow(0);
+        }
+
+        for (PotentialJob posting : postings) {
+            Object[] rowData = {posting.getTitle(), posting.getCompany(), posting.getPay(),
+                    posting.getDate(), posting.getLocation(), new JobLinkButton(posting.getLink()), false};
+            tableModel.addRow(rowData);
+        }
+    }
+
+    private void createNewPosting() {
+        String jobTitle = JOptionPane.showInputDialog(frame, "Enter Job Title:");
+        String company = JOptionPane.showInputDialog(frame, "Enter Company:");
+        String compensation = JOptionPane.showInputDialog(frame, "Enter Compensation:");
+        String dueDate = JOptionPane.showInputDialog(frame, "Enter Due Date:");
+        String location = JOptionPane.showInputDialog(frame, "Enter Location:");
+        String jobLink = JOptionPane.showInputDialog(frame, "Enter Job Posting Link:");
+
+        PotentialJob newPosting = new PotentialJob(jobTitle, company, compensation, dueDate, location, jobLink);
+
+        postings.add(newPosting);
+
+        Object[] rowData = {newPosting.getTitle(), newPosting.getCompany(), newPosting.getPay(),
+                newPosting.getDate(), newPosting.getLocation(), new JobLinkButton(newPosting.getLink()), false};
+        mainTableModel.addRow(rowData);
+    }
+
+    private static class JobLinkButton extends JButton implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private String link;
+
+        public JobLinkButton(String link) {
+            super("Job Link");
+            final String url = link;
+            addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    openLinkInBrowser(url);
+                }
+            });
+        }
+
+        private void openLinkInBrowser(String link) {
+            try {
+                Desktop.getDesktop().browse(new URI(link));
+            } catch (IOException | URISyntaxException ex) {
+                ex.printStackTrace();
             }
         }
-        textArea.setText("Searching for '" + keywordTextField.getText().trim() + "' on " + source + " at link " + url + word);
-        List<PositionOpportunity> positions = Scraper.scrape(url + word);
-        String output = "";
-        for(PositionOpportunity jobs : positions) {
-            output += jobs.toString() + "\n";
+    }
+
+    private static class ButtonRenderer extends JButton implements TableCellRenderer {
+        public ButtonRenderer() {
+            setOpaque(true);
         }
-        textArea.setText(output);
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            if (isSelected) {
+                setForeground(table.getSelectionForeground());
+                setBackground(table.getSelectionBackground());
+            } else {
+                setForeground(table.getForeground());
+                setBackground(UIManager.getColor("Button.background"));
+            }
+
+            setText((value == null) ? "" : value.toString());
+            return this;
+        }
+    }
+
+    private static class CheckBoxRenderer extends JCheckBox implements TableCellRenderer {
+        public CheckBoxRenderer() {
+            setHorizontalAlignment(JLabel.CENTER);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            setSelected((value != null && (boolean) value));
+            return this;
+        }
     }
 
     public static void main(String[] args) {
